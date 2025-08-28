@@ -7,7 +7,7 @@ def main():
     window_height = int(root.winfo_screenheight()/1.5)
     root.geometry(f"{window_width}x{window_height}")
     root.title('Canvas')
-    root.resizable(width=False, height=False)
+    #root.resizable(width=False, height=False)
 
     #Menu Container
     menu_height = 40
@@ -20,7 +20,7 @@ def main():
 
     #ID Handling
     next_id = 0
-    
+
     def generate_id():
         nonlocal next_id
         next_id += 1
@@ -42,21 +42,42 @@ def main():
     #Grid
     cell_size = 20
     row = int(window_width/cell_size)
-    col = int(window_height/cell_size)
+    col = int((window_height-menu_height)/cell_size)
 
     for i in range(row+1):
         x_loc = i * cell_size
-        canvas.create_line(x_loc, 0, x_loc, window_height-menu_height, fill="#2A2A2A", width=1)
+        canvas.create_line(x_loc, 0, x_loc, window_height-menu_height, fill="#2A2A2A", width=1, tags=("grid",))
 
     for j in range(col+1):
         y_loc = j * cell_size
-        canvas.create_line(0, y_loc, window_width, y_loc, fill="#2A2A2A", width=1)
+        canvas.create_line(0, y_loc, window_width, y_loc, fill="#2A2A2A", width=1, tags=("grid",))
 
     #Entity Container
     entities = {}
 
     #Trim Function
     trim_mode = {"active": False}
+
+    def find_entity_from_cid(cid):
+        for entity in entities.values():
+            if cid in entity["canvas_id"]:
+                return entity
+        return None
+
+    def find_intersecting_points(target_entity):
+        type = target_entity["type"]
+
+        if type == "point":
+            #Delete the point
+            return
+        elif type == "line":
+            #Find closest two intsecrtion points else delete line
+            return
+        elif type == "circle":
+            #Find closest two intersection points else delete circe
+            return
+
+        return
 
     def enable_trim_mode():
         disable_all_modes()
@@ -69,9 +90,14 @@ def main():
             return
         half = cell_size // 2
         item = canvas.find_overlapping(e.x - half, e.y - half, e.x + half, e.y + half)
+        item = [i for i in item if "grid" not in canvas.gettags(i)]
         if not item:
             return
-        print(item[-1])
+        entity = find_entity_from_cid(item[-1])
+
+        # Get type, Identify two closest overlapping sections. Recreate current shape by deleting old shape then
+        # create smaller shape of intersected size.
+
 
 
     # --- Point Mode ---
