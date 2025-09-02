@@ -1,4 +1,6 @@
 import tkinter as tk
+from shapely.geometry import Point, LineString
+import math
 
 def main():
     # Setup
@@ -6,7 +8,7 @@ def main():
     window_width = int(root.winfo_screenwidth()/1.5)
     window_height = int(root.winfo_screenheight()/1.5)
     root.geometry(f"{window_width}x{window_height}")
-    root.title('Canvas')
+    root.title('Shape Initializer')
     #root.resizable(width=False, height=False)
 
     #Menu Container
@@ -64,18 +66,115 @@ def main():
                 return entity
         return None
 
-    def find_intersecting_points(target_entity):
-        type = target_entity["type"]
-
+    def create_shapely_item(entity):
+        type = entity["type"]
         if type == "point":
-            #Delete the point
-            return
-        elif type == "line":
-            #Find closest two intsecrtion points else delete line
-            return
+            x0, y0 = entity["coords"]
+            target_point = Point(x0, y0)
+            return target_point
+        if type == "line":
+            x0, y0, x1, y1 = entity["coords"]
+            target_line = LineString([(x0, y0), (x1, y1)])
+            return target_line
         elif type == "circle":
-            #Find closest two intersection points else delete circe
+            circle_cords = Point(entity["center"]).buffer(entity["radius"], resolution=256).boundary
+            return circle_cords
+        return
+
+    def get_two_closest_intersection_points(target_entity, grid_x, grid_y):
+        target_geom = create_shapely_item(target_entity)
+
+        intersections = []
+        for eid, entity in entities.items():
+            if entity is target_entity:
+                continue
+            geom = create_shapely_item(entity)
+            if geom:
+                result = target_geom.intersection(geom)
+                if not result.is_empty:
+                    if result.geom_type == "Point":
+                        intersections.append(result.coords[0])
+                    elif result.geom_type == "MultiPoint":
+                        intersections.extend([p.coords[0] for p in result.geoms])
+
+        click_point = Point(grid_x, grid_y)
+        intersections.sort(key=lambda p: click_point.distance(Point(p)))
+        return intersections[:2]
+
+    def delete_entity(target_entity):
+        # Delete from canvas, add to history
+        for cid in target_entity["canvas_id"]:
+            canvas.delete(cid)
+
+    def recreate_line(x0, y0, intersection):
+        canvas.create_line(x0, y0, intersection[0], intersection[1], fill="red", width=2)
+
+    def recreate_entity_line(target_entity, intersections, grid_x, grid_y):
+        for cid in target_entity["canvas_id"]:
+            canvas.delete(cid)
+
+        x0, y0, x1, y1 = target_entity["coords"]
+
+        if len(intersections) > 1:
+            v1x = intersections[0][0] - grid_x
+            v1y = intersections[0][1] - grid_y
+            v2x = intersections[1][0] - grid_x
+            v2y = intersections[1][1] - grid_y
+            dot = (v1x * v2x) + (v1y * v2y)
+
+        if len(intersections) == 1 or dot >= 0:
+            r1 = math.dist((x0, y0), (grid_x, grid_y))
+            r2 = math.dist((x1, y1), (grid_x, grid_y))
+            if r1 > r2:
+                recreate_line(x0, y0, intersections[0])
+            else:
+                recreate_line(x1, y1, intersections[0])
             return
+
+        vex = x0 - grid_x
+        vey = y0 - grid_y
+        dot_dir = (v1x * vex) + (v1y * vey)
+
+        if dot_dir > 0:
+            recreate_line(x0, y0, intersections[0])
+            recreate_line(x1, y1, intersections[1])
+        else:
+            recreate_line(x0, y0, intersections[1])
+            recreate_line(x1, y1, intersections[0])
+        return
+
+    def find_point_on_circle_angle(cx, cy, x, y):
+        dx = x - cx
+        dy = cy - y
+        theta_rad = math.atan2(-dy, dx)
+        deg = math.degrees(theta_rad)
+        return deg % 360
+
+    def recreate_entity_circle(target_entity, intersections):
+        canvas.delete(target_entity["canvas_id"])
+        # intersections here is always greater than 2
+        # Delete intersection portion
+        # Convert intersection points to angles
+        cx, cy = target_entity["center"]
+        x1, y1 = intersections[0]
+        x2, y2 = intersections[1]
+        radius = target_entity["radius"]
+
+        deg1 = find_point_on_circle_angle(cx, cy, x1, y1)
+        deg2 = find_point_on_circle_angle(cx, cy, x2, y2)
+
+        extent = (deg2 - deg1) % 360
+        bbox = (cx - radius, cy - radius, cx + radius, cy + radius)
+
+        canvas.create_arc(bbox, start=deg1, extent=extent, style=tk.ARC, outline="red", width=2)
+        """
+        x0, y0 = circle_mode["center"]
+            dx = grid_x - x0
+            dy = grid_y - y0
+            radius = round(((dx ** 2 + dy ** 2) ** 0.5) / cell_size) * cell_size
+            canvas.coords(preview_circle, x0 - radius, y0 - radius, x0 + radius, y0 + radius)
+        """
+
 
         return
 
@@ -88,17 +187,24 @@ def main():
     def on_click_trim(e):
         if not trim_mode["active"]:
             return
-        half = cell_size // 2
-        item = canvas.find_overlapping(e.x - half, e.y - half, e.x + half, e.y + half)
+
+        half = cell_size // 4
+        grid_x, grid_y = e.x, e.y
+        item = canvas.find_overlapping(grid_x - half, grid_y - half, grid_x + half, grid_y + half)
         item = [i for i in item if "grid" not in canvas.gettags(i)]
+
         if not item:
             return
-        entity = find_entity_from_cid(item[-1])
 
-        # Get type, Identify two closest overlapping sections. Recreate current shape by deleting old shape then
-        # create smaller shape of intersected size.
+        target_entity = find_entity_from_cid(item[-1])
+        intersections = get_two_closest_intersection_points(target_entity, grid_x, grid_y)
 
-
+        if target_entity["type"] == "point" or target_entity["type"] == "line" and len(intersections) == 0 or target_entity["type"] == "circle" and len(intersections) < 2:
+            delete_entity(target_entity)
+        elif target_entity["type"] == "line":
+            recreate_entity_line(target_entity, intersections, grid_x, grid_y)
+        else:
+            recreate_entity_circle(target_entity, intersections)
 
     # --- Point Mode ---
     r = 2
@@ -114,15 +220,11 @@ def main():
         canvas.bind("<Motion>", on_motion_point)
 
     def on_motion_point(e):
-        if not point_mode["active"]:
-            return
         grid_x = round(e.x / cell_size) * cell_size
         grid_y = round(e.y / cell_size) * cell_size
         canvas.coords(preview_point, grid_x - r, grid_y - r, grid_x + r, grid_y + r)
 
     def on_click_point(e):
-        if not point_mode["active"]:
-            return
         grid_x = round(e.x / cell_size) * cell_size
         grid_y = round(e.y / cell_size) * cell_size
         point_id = canvas.create_oval(grid_x - r, grid_y - r, grid_x + r, grid_y + r, fill="red", outline="")
@@ -152,8 +254,6 @@ def main():
         canvas.bind("<Motion>", on_motion_line)
         
     def on_click_line(e):
-        if not line_mode["active"]:
-            return
         grid_x = round(e.x / cell_size) * cell_size
         grid_y = round(e.y / cell_size) * cell_size
         if line_mode["first_point"] is None:
@@ -184,8 +284,6 @@ def main():
             canvas.coords(preview_line_point, -10, -10, -10, -10)
 
     def on_motion_line(e):
-        if not line_mode["active"]:
-            return
         grid_x = round(e.x / cell_size) * cell_size
         grid_y = round(e.y / cell_size) * cell_size
         canvas.coords(preview_line_point, grid_x - r, grid_y - r, grid_x + r, grid_y + r)
@@ -209,8 +307,6 @@ def main():
         canvas.bind("<Motion>", on_motion_circle)
 
     def on_click_circle(e):
-        if not circle_mode["active"]:
-            return
         grid_x = round(e.x / cell_size) * cell_size
         grid_y = round(e.y / cell_size) * cell_size
         if circle_mode["center"] is None:
@@ -241,8 +337,6 @@ def main():
             canvas.coords(preview_circle_point, -10, -10, -10, -10)
 
     def on_motion_circle(e):
-        if not circle_mode["active"]:
-            return
         grid_x = round(e.x / cell_size) * cell_size
         grid_y = round(e.y / cell_size) * cell_size
         if circle_mode["center"] is None:

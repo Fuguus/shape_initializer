@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="Python 3.13 (shape_initializer)" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.13 (shape_initializer)" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.10 (shape_initializer)" project-jdk-type="Python SDK" />
 </project>
